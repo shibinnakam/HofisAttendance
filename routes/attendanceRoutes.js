@@ -36,12 +36,19 @@ router.post('/tap', async (req, res) => {
     let action = '';
     let eventType = '';
 
-    // Logic: If student has not checked in today (or is marked Absent, or inTime is not set)
-    // First tap -> Check In (Status: Present, inTime: now)
-    // Second tap -> Check Out (outTime: now)
-    if (!student.inTime || student.status === 'Absent') {
+    // Check if previous tap was from today
+    const isSameDay = student.inTime &&
+      student.inTime.getFullYear() === now.getFullYear() &&
+      student.inTime.getMonth() === now.getMonth() &&
+      student.inTime.getDate() === now.getDate();
+
+    // Logic: If first tap of the day, or previous was a different day, or status is Absent
+    // First tap of the day -> Check In (Status: Present, inTime: now, outTime: null)
+    // Second tap of the same day -> Check Out (outTime: now)
+    if (!isSameDay || !student.inTime || student.status === 'Absent') {
       student.status = 'Present';
       student.inTime = now;
+      student.outTime = null; // Fresh start for the new day
       student.lastTap = now;
       action = 'Checked In';
       eventType = 'CHECK_IN';
