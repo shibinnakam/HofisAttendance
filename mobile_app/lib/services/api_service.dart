@@ -1,6 +1,4 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/student.dart';
 
@@ -216,4 +214,30 @@ class ApiService {
       throw Exception(data['message'] ?? 'Failed to reset attendance');
     }
   }
+
+  /// Get Custom Date Attendance Report for a specific class
+  Future<Map<String, dynamic>> getClassDateReport({
+    required String studentClass,
+    required String date, // 'YYYY-MM-DD'
+  }) async {
+    final queryParams = <String, String>{
+      'date': date,
+    };
+    if (studentClass.isNotEmpty && studentClass != 'All Classes') {
+      queryParams['class'] = studentClass;
+    }
+
+    final uri = Uri.parse('$_baseUrl/api/attendance/report')
+        .replace(queryParameters: queryParams);
+
+    final response = await http.get(uri).timeout(const Duration(seconds: 8));
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final data = jsonDecode(response.body);
+      throw Exception(data['message'] ?? 'Failed to load attendance report');
+    }
+  }
 }
+

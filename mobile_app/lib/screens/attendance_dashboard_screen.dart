@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import 'register_student_screen.dart';
 import 'card_tap_screen.dart';
 import 'settings_screen.dart';
+import 'class_date_attendance_screen.dart';
 
 class AttendanceDashboardScreen extends StatefulWidget {
   const AttendanceDashboardScreen({super.key});
@@ -28,6 +29,15 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
   String _searchQuery = '';
   String _selectedStatus = 'All';
 
+  DateTime _selectedDate = DateTime.now();
+
+  bool get _isToday {
+    final now = DateTime.now();
+    return _selectedDate.year == now.year &&
+        _selectedDate.month == now.month &&
+        _selectedDate.day == now.day;
+  }
+
   Timer? _autoRefreshTimer;
   bool _autoRefresh = true;
 
@@ -40,9 +50,9 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
 
   void _startAutoRefresh() {
     _autoRefreshTimer?.cancel();
-    if (_autoRefresh) {
+    if (_autoRefresh && _isToday) {
       _autoRefreshTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
-        if (mounted && !_isLoading) {
+        if (mounted && !_isLoading && _isToday) {
           _fetchStudentsSilently();
           _fetchStatsSilently();
         }
@@ -64,12 +74,16 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
 
     try {
       final classes = await _apiService.getClasses();
-      final stats = await _apiService.getStats();
-
       setState(() {
         _classes = ['All Classes', ...classes];
-        _stats = stats;
       });
+
+      if (_isToday) {
+        final stats = await _apiService.getStats();
+        setState(() {
+          _stats = stats;
+        });
+      }
 
       await _fetchStudents();
     } catch (e) {
@@ -81,34 +95,101 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
   }
 
   Future<void> _fetchStudents() async {
+    if (_isToday) {
+      try {
+        final students = await _apiService.getStudents(
+          search: _searchQuery,
+          studentClass: _selectedClass == 'All Classes' ? null : _selectedClass,
+          status: _selectedStatus == 'All' ? null : _selectedStatus,
+        );
+
+        setState(() {
+          _students = students;
+          _isLoading = false;
+          _errorMessage = null;
+        });
+      } catch (e) {
+        setState(() {
+          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+          _isLoading = false;
+        });
+      }
+    } else {
+      await _fetchHistoricalReport();
+    }
+  }
+
+  Future<void> _fetchHistoricalReport() async {
     try {
-      final students = await _apiService.getStudents(
-        search: _searchQuery,
-        studentClass: _selectedClass == 'All Classes' ? null : _selectedClass,
-        status: _selectedStatus == 'All' ? null : _selectedStatus,
+      final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
+      final res = await _apiService.getClassDateReport(
+        studentClass: _selectedClass,
+        date: dateStr,
       );
 
-      setState(() {
-        _students = students;
-        _isLoading = false;
-        _errorMessage = null;
-      });
+      if (res['success'] == true) {
+        final summary = res['summary'] ?? {};
+        final rawData = (res['data'] as List? ?? []);
+
+        List<Student> students = rawData
+            .map((item) => Student.fromJson(item as Map<String, dynamic>))
+            .toList();
+
+        // Apply search query filter
+        if (_searchQuery.isNotEmpty) {
+          final query = _searchQuery.toLowerCase();
+          students = students.where((s) =>
+            s.studentName.toLowerCase().contains(query) ||
+            s.rfidCardNumber.toLowerCase().contains(query) ||
+            s.studentClass.toLowerCase().contains(query)
+          ).toList();
+        }
+
+        // Apply status filter
+        if (_selectedStatus != 'All') {
+          students = students.where((s) => s.status.toLowerCase() == _selectedStatus.toLowerCase()).toList();
+        }
+
+        if (mounted) {
+          setState(() {
+            _students = students;
+            _stats = AttendanceStats(
+              totalStudents: summary['total'] ?? students.length,
+              totalPresent: summary['present'] ?? 0,
+              totalAbsent: summary['absent'] ?? 0,
+              attendanceRate: summary['percentage'] ?? 0,
+            );
+            _isLoading = false;
+            _errorMessage = null;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _errorMessage = res['message'] ?? 'Failed to load attendance report';
+            _isLoading = false;
+          });
+        }
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString().replaceFirst('Exception: ', '');
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+          _isLoading = false;
+        });
+      }
     }
   }
 
   Future<void> _fetchStudentsSilently() async {
+    if (!_isToday) return;
     try {
       final students = await _apiService.getStudents(
         search: _searchQuery,
         studentClass: _selectedClass == 'All Classes' ? null : _selectedClass,
         status: _selectedStatus == 'All' ? null : _selectedStatus,
       );
-      if (mounted) {
+      if (mounted && _isToday) {
         setState(() {
           _students = students;
           _errorMessage = null;
@@ -118,14 +199,80 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
   }
 
   Future<void> _fetchStatsSilently() async {
+    if (!_isToday) return;
     try {
       final stats = await _apiService.getStats();
-      if (mounted) {
+      if (mounted && _isToday) {
         setState(() {
           _stats = stats;
         });
       }
     } catch (_) {}
+  }
+
+  Future<void> _pickCustomDate() async {
+    final DateTime now = DateTime.now();
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2023, 1, 1),
+      lastDate: DateTime(now.year, now.month, now.day + 1),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Color(0xFF6366F1),
+              onPrimary: Colors.white,
+              surface: Color(0xFF1E293B),
+              onSurface: Colors.white,
+            ),
+            dialogBackgroundColor: const Color(0xFF121826),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+        _isLoading = true;
+      });
+      _startAutoRefresh();
+      _loadInitialData();
+    }
+  }
+
+  void _previousDay() {
+    setState(() {
+      _selectedDate = _selectedDate.subtract(const Duration(days: 1));
+      _isLoading = true;
+    });
+    _startAutoRefresh();
+    _loadInitialData();
+  }
+
+  void _nextDay() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final next = _selectedDate.add(const Duration(days: 1));
+    if (!next.isAfter(today)) {
+      setState(() {
+        _selectedDate = next;
+        _isLoading = true;
+      });
+      _startAutoRefresh();
+      _loadInitialData();
+    }
+  }
+
+  void _resetToToday() {
+    setState(() {
+      _selectedDate = DateTime.now();
+      _isLoading = true;
+    });
+    _startAutoRefresh();
+    _loadInitialData();
   }
 
   void _openRegisterScreen({Student? studentToEdit}) async {
@@ -147,6 +294,10 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (context) => const CardTapScreen()),
     );
+    // Return to current day if simulating live card tap
+    if (!_isToday) {
+      _selectedDate = DateTime.now();
+    }
     _loadInitialData();
   }
 
@@ -304,6 +455,22 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
             ),
             onPressed: _openCardTapScreen,
           ),
+          // Detailed Class Date Report Button
+          IconButton(
+            tooltip: 'Class Date Report Screen',
+            icon: const Icon(Icons.assessment_outlined, color: Color(0xFF38BDF8)),
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (ctx) => ClassDateAttendanceScreen(
+                    availableClasses: _classes.where((c) => c != 'All Classes').toList(),
+                    initialClass: _selectedClass != 'All Classes' ? _selectedClass : null,
+                  ),
+                ),
+              );
+              _loadInitialData();
+            },
+          ),
           // Day Reset Button
           IconButton(
             tooltip: 'New Day Reset',
@@ -333,10 +500,15 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // 0. Interactive Date Bar (Shows Today's current day attendance / lets user pick custom date)
+              _buildDateNavigationBar(),
+
+              const SizedBox(height: 14),
+
               // 1. Process Overview Stats Grid
               _buildStatsGrid(),
 
-              const SizedBox(height: 18),
+              const SizedBox(height: 16),
 
               // 2. Class Selection Dropdown & Status Filter
               _buildFilterSection(),
@@ -353,7 +525,9 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'STUDENTS (${_students.length})',
+                    _isToday
+                        ? 'TODAY\'S ATTENDANCE (${_students.length})'
+                        : 'ATTENDANCE (${DateFormat('MMM d').format(_selectedDate).toUpperCase()}) (${_students.length})',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -367,20 +541,26 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
                         width: 8,
                         height: 8,
                         decoration: BoxDecoration(
-                          color: _autoRefresh
-                              ? const Color(0xFF10B981)
-                              : Colors.grey,
+                          color: _isToday
+                              ? (_autoRefresh
+                                  ? const Color(0xFF10B981)
+                                  : Colors.grey)
+                              : const Color(0xFF06B6D4),
                           shape: BoxShape.circle,
                         ),
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        _autoRefresh ? 'Live Polling (4s)' : 'Paused',
+                        _isToday
+                            ? (_autoRefresh ? 'Live Polling (4s)' : 'Paused')
+                            : 'Historical Record',
                         style: TextStyle(
                           fontSize: 11,
-                          color: _autoRefresh
-                              ? const Color(0xFF6EE7B7)
-                              : const Color(0xFF64748B),
+                          color: _isToday
+                              ? (_autoRefresh
+                                  ? const Color(0xFF6EE7B7)
+                                  : const Color(0xFF64748B))
+                              : const Color(0xFF67E8F9),
                         ),
                       ),
                     ],
@@ -406,6 +586,175 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         onPressed: () => _openRegisterScreen(),
+      ),
+    );
+  }
+
+  Widget _buildDateNavigationBar() {
+    final now = DateTime.now();
+    final isYesterday = _selectedDate.year == now.year &&
+        _selectedDate.month == now.month &&
+        _selectedDate.day == now.day - 1;
+
+    String dateLabel;
+    if (_isToday) {
+      dateLabel = 'Today, ${DateFormat('MMM d, yyyy').format(_selectedDate)}';
+    } else if (isYesterday) {
+      dateLabel = 'Yesterday, ${DateFormat('MMM d, yyyy').format(_selectedDate)}';
+    } else {
+      dateLabel = DateFormat('EEE, MMM d, yyyy').format(_selectedDate);
+    }
+
+    final canGoForward = !_isToday;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF121826),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: _isToday
+              ? const Color(0xFF6366F1).withOpacity(0.35)
+              : const Color(0xFF06B6D4).withOpacity(0.4),
+          width: 1.2,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              // Previous Day Button
+              IconButton(
+                icon: const Icon(Icons.chevron_left_rounded, color: Colors.white, size: 26),
+                tooltip: 'Previous Day',
+                onPressed: _previousDay,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
+
+              // Date Display & Picker Tap Target
+              Expanded(
+                child: InkWell(
+                  onTap: _pickCustomDate,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.calendar_month_rounded,
+                          size: 16,
+                          color: _isToday ? const Color(0xFF818CF8) : const Color(0xFF06B6D4),
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            dateLabel,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        // Live / Custom Badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: _isToday
+                                ? const Color(0xFF10B981).withOpacity(0.2)
+                                : const Color(0xFF06B6D4).withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: _isToday ? const Color(0xFF10B981) : const Color(0xFF06B6D4),
+                              width: 0.8,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_isToday) ...[
+                                Container(
+                                  width: 5,
+                                  height: 5,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF10B981),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                              ],
+                              Text(
+                                _isToday ? 'LIVE' : 'CUSTOM',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.5,
+                                  color: _isToday ? const Color(0xFF6EE7B7) : const Color(0xFF67E8F9),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              // Next Day Button
+              IconButton(
+                icon: Icon(
+                  Icons.chevron_right_rounded,
+                  color: canGoForward ? Colors.white : Colors.white24,
+                  size: 26,
+                ),
+                tooltip: 'Next Day',
+                onPressed: canGoForward ? _nextDay : null,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
+            ],
+          ),
+
+          // Return to Today Quick Banner (only shown when not today)
+          if (!_isToday) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 2),
+              child: InkWell(
+                onTap: _resetToToday,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF6366F1).withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF6366F1).withOpacity(0.5)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.today_rounded, size: 13, color: Color(0xFFA5B4FC)),
+                      SizedBox(width: 5),
+                      Text(
+                        'Viewing Past Record • Tap here to jump to Today',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFFA5B4FC),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -926,6 +1275,9 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
                                 : const Color(0xFFF43F5E),
                           ),
                         );
+                        if (!_isToday) {
+                          _selectedDate = DateTime.now();
+                        }
                         _loadInitialData();
                       } catch (e) {
                         ScaffoldMessenger.of(context).showSnackBar(

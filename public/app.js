@@ -349,8 +349,7 @@ window.openEditModal = function(id) {
   studentIdInput.value = student.id || student._id;
   formRfid.value = student.rfidCardNumber;
   formRfid.disabled = false;
-  formName.value = student.studentName;
-  formStatus.value = student.status || 'Absent';
+  if (formStatus) formStatus.value = student.status || 'Absent';
 
   // Ensure class exists in dropdown
   if (!availableClasses.includes(student.class)) {
@@ -393,11 +392,12 @@ async function handleSaveStudent(e) {
     return;
   }
 
+  const existingStudent = isEditing ? studentsList.find((s) => (s.id || s._id) === editingStudentId) : null;
   const payload = {
     rfidCardNumber: rfid,
     studentName: name,
     class: studentClass,
-    status: formStatus.value,
+    status: formStatus ? formStatus.value : (existingStudent ? existingStudent.status : 'Absent'),
     inTime: formInTime.value ? new Date(formInTime.value).toISOString() : null,
     outTime: formOutTime.value ? new Date(formOutTime.value).toISOString() : null,
   };

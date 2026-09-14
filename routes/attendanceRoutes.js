@@ -2,6 +2,11 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const AttendanceLog = require('../models/AttendanceLog');
+const {
+  getLocalDateString,
+  runNightUpdate,
+  getNightUpdateStatus,
+} = require('../services/nightUpdateService');
 
 /**
  * @route   POST /api/attendance/tap
@@ -61,8 +66,9 @@ router.post('/tap', async (req, res) => {
 
     await student.save();
 
-    // Record immutable audit log
+    // Record immutable audit log with local date
     try {
+      const localDateStr = getLocalDateString(now);
       await AttendanceLog.create({
         userId: student._id,
         rfidCardNumber: student.rfidCardNumber,
@@ -70,6 +76,7 @@ router.post('/tap', async (req, res) => {
         class: student.class,
         eventType: eventType,
         timestamp: now,
+        dateString: localDateStr,
       });
     } catch (logErr) {
       console.error('Failed to write attendance log:', logErr.message);
@@ -134,25 +141,44 @@ router.get('/stats', async (req, res) => {
 });
 
 /**
+ * @route   POST /api/attendance/night-update
+ * @desc    Trigger the 11:59 PM night attendance update and day reset manually or via scheduler
+ */
+router.post('/night-update', async (req, res) => {
+  try {
+    const result = await runNightUpdate();
+    return res.json({
+      success: result.success,
+      message: result.success
+        ? `11:59 PM Night update completed successfully. Reset ${result.studentsReset} students to Absent for the new day.`
+        : `Night update failed: ${result.message}`,
+      data: result,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * @route   GET /api/attendance/night-update/status
+ * @desc    Get status of the 11:59 PM night update scheduler
+ */
+router.get('/night-update/status', (req, res) => {
+  const status = getNightUpdateStatus();
+  return res.json({ success: true, data: status });
+});
+
+/**
  * @route   POST /api/attendance/reset-daily
  * @desc    Reset all student statuses to Absent and clear in/out times for a new day
  */
 router.post('/reset-daily', async (req, res) => {
   try {
-    const result = await User.updateMany(
-      {},
-      {
-        $set: {
-          status: 'Absent',
-          inTime: null,
-          outTime: null,
-        },
-      }
-    );
-
+    const result = await runNightUpdate();
     return res.json({
-      success: true,
-      message: `Daily attendance reset completed. Updated ${result.modifiedCount} student records.`,
+      success: result.success,
+      message: `Daily attendance reset completed. Updated ${result.studentsReset ?? 0} student records.`,
+      data: result,
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -173,4 +199,113 @@ router.get('/logs', async (req, res) => {
   }
 });
 
+/**
+ * @route   GET /api/attendance/report
+ * @desc    Get attendance report for a specific class on a custom date
+ * @query   class: string, date: YYYY-MM-DD
+ */
+router.get('/report', async (req, res) => {
+  try {
+    const { class: studentClass, date } = req.query;
+    const todayLocalStr = getLocalDateString(new Date());
+    const queryDateStr = date || todayLocalStr;
+
+    // Parse YYYY-MM-DD components
+    const [y, m, d] = queryDateStr.split('-').map(Number);
+    const startOfDay = new Date(y, m - 1, d, 0, 0, 0, 0);
+    const endOfDay = new Date(y, m - 1, d, 23, 59, 59, 999);
+
+    const userQuery = {};
+    if (studentClass && studentClass !== 'All' && studentClass !== 'All Classes') {
+      userQuery.class = studentClass;
+    }
+
+    const students = await User.find(userQuery).sort({ studentName: 1 });
+
+    const logs = await AttendanceLog.find({
+      $or: [
+        { dateString: queryDateStr },
+        { timestamp: { $gte: startOfDay, $lte: endOfDay } }
+      ]
+    }).sort({ timestamp: 1 });
+
+    const logsByStudent = {};
+    logs.forEach(log => {
+      const keyId = log.userId ? log.userId.toString() : '';
+      if (keyId) {
+        if (!logsByStudent[keyId]) logsByStudent[keyId] = [];
+        logsByStudent[keyId].push(log);
+      }
+      if (log.rfidCardNumber) {
+        if (!logsByStudent[log.rfidCardNumber]) logsByStudent[log.rfidCardNumber] = [];
+        logsByStudent[log.rfidCardNumber].push(log);
+      }
+    });
+
+    const isToday = queryDateStr === todayLocalStr;
+    let presentCount = 0;
+
+    const records = students.map(student => {
+      const studentLogs = logsByStudent[student._id.toString()] || logsByStudent[student.rfidCardNumber] || [];
+      let inTime = null;
+      let outTime = null;
+      let status = 'Absent';
+
+      if (studentLogs.length > 0) {
+        const checkIns = studentLogs.filter(l => l.eventType === 'CHECK_IN');
+        const checkOuts = studentLogs.filter(l => l.eventType === 'CHECK_OUT');
+
+        if (checkIns.length > 0) {
+          inTime = checkIns[0].timestamp;
+          status = 'Present';
+        }
+        if (checkOuts.length > 0) {
+          outTime = checkOuts[checkOuts.length - 1].timestamp;
+        }
+      }
+
+      if (isToday && student.status === 'Present') {
+        status = 'Present';
+        if (!inTime && student.inTime) inTime = student.inTime;
+        if (!outTime && student.outTime) outTime = student.outTime;
+      }
+
+      if (status === 'Present') {
+        presentCount++;
+      }
+
+      return {
+        id: student._id,
+        rfidCardNumber: student.rfidCardNumber,
+        studentName: student.studentName,
+        class: student.class,
+        status: status,
+        inTime: inTime,
+        outTime: outTime,
+      };
+    });
+
+    const totalStudents = students.length;
+    const absentCount = totalStudents - presentCount;
+    const percentage = totalStudents > 0 ? Math.round((presentCount / totalStudents) * 100) : 0;
+
+    return res.json({
+      success: true,
+      date: queryDateStr,
+      class: studentClass || 'All Classes',
+      summary: {
+        total: totalStudents,
+        present: presentCount,
+        absent: absentCount,
+        rate: `${percentage}%`,
+        percentage: percentage,
+      },
+      data: records,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 module.exports = router;
+

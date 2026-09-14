@@ -26,7 +26,6 @@ class _RegisterStudentScreenState extends State<RegisterStudentScreen> {
   late TextEditingController _customClassController;
 
   String? _selectedClass;
-  String _selectedStatus = 'Absent';
   bool _isCustomClass = false;
   bool _isSubmitting = false;
 
@@ -53,7 +52,6 @@ class _RegisterStudentScreenState extends State<RegisterStudentScreen> {
     _customClassController = TextEditingController();
 
     if (s != null) {
-      _selectedStatus = s.status;
       if (_classList.contains(s.studentClass)) {
         _selectedClass = s.studentClass;
       } else {
@@ -104,7 +102,7 @@ class _RegisterStudentScreenState extends State<RegisterStudentScreen> {
         rfidCardNumber: rfid,
         studentName: name,
         studentClass: studentClass,
-        status: _selectedStatus,
+        status: widget.studentToEdit?.status ?? 'Absent',
       );
 
       if (widget.studentToEdit != null) {
@@ -215,7 +213,7 @@ class _RegisterStudentScreenState extends State<RegisterStudentScreen> {
                           ),
                           const SizedBox(height: 2),
                           const Text(
-                            'Select student class from the dropdown and link RFID UID.',
+                            'Enter RFID card, student name, and select class. Attendance starts as Absent and updates on RFID tap.',
                             style: TextStyle(
                               fontSize: 12,
                               color: Color(0xFF94A3B8),
@@ -439,109 +437,7 @@ class _RegisterStudentScreenState extends State<RegisterStudentScreen> {
                 ),
               ],
 
-              const SizedBox(height: 20),
-
-              // Field 4: Initial Status
-              const Text(
-                'Initial Attendance Status',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFFCBD5E1),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => setState(() => _selectedStatus = 'Absent'),
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: _selectedStatus == 'Absent'
-                              ? const Color(0xFFF43F5E).withOpacity(0.18)
-                              : const Color(0xFF121826),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: _selectedStatus == 'Absent'
-                                ? const Color(0xFFF43F5E)
-                                : Colors.white.withOpacity(0.08),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.cancel_rounded,
-                              size: 16,
-                              color: _selectedStatus == 'Absent'
-                                  ? const Color(0xFFF43F5E)
-                                  : Colors.white54,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Absent',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: _selectedStatus == 'Absent'
-                                    ? const Color(0xFFFDA4AF)
-                                    : Colors.white70,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => setState(() => _selectedStatus = 'Present'),
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: _selectedStatus == 'Present'
-                              ? const Color(0xFF10B981).withOpacity(0.18)
-                              : const Color(0xFF121826),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: _selectedStatus == 'Present'
-                                ? const Color(0xFF10B981)
-                                : Colors.white.withOpacity(0.08),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.check_circle_rounded,
-                              size: 16,
-                              color: _selectedStatus == 'Present'
-                                  ? const Color(0xFF10B981)
-                                  : Colors.white54,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Present',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: _selectedStatus == 'Present'
-                                    ? const Color(0xFF6EE7B7)
-                                    : Colors.white70,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 36),
+              const SizedBox(height: 32),
 
               // Submit Button
               SizedBox(

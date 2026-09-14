@@ -11,8 +11,14 @@ const attendanceRoutes = require('./routes/attendanceRoutes');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const { scheduleNightUpdate, checkStartupCatchup } = require('./services/nightUpdateService');
+
 // Connect to MongoDB Atlas
-connectDB();
+connectDB().then((connected) => {
+  if (connected) {
+    checkStartupCatchup();
+  }
+});
 
 // Middleware
 app.use(cors());
@@ -73,35 +79,8 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Schedule automatic daily attendance reset at 12:00 AM Midnight
-const scheduleMidnightReset = () => {
-  const now = new Date();
-  const tomorrowMidnight = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + 1,
-    0, 0, 5 // 12:00:05 AM
-  );
-  const msToMidnight = tomorrowMidnight.getTime() - now.getTime();
-
-  setTimeout(async () => {
-    try {
-      if (mongoose.connection.readyState === 1) {
-        const User = require('./models/User');
-        const res = await User.updateMany(
-          {},
-          { $set: { status: 'Absent', inTime: null, outTime: null } }
-        );
-        console.log(`🌙 [MIDNIGHT RESET] New day started at ${new Date().toLocaleTimeString()}. Reset ${res.modifiedCount} students to Absent.`);
-      }
-    } catch (e) {
-      console.error('Midnight reset error:', e.message);
-    }
-    // Recur for the following day
-    scheduleMidnightReset();
-  }, msToMidnight);
-};
-scheduleMidnightReset();
+// Schedule automatic daily attendance update and reset at 11:59 PM every night
+scheduleNightUpdate();
 
 // Start Server
 app.listen(PORT, () => {
