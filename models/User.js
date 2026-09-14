@@ -8,7 +8,6 @@ const userSchema = new mongoose.Schema(
       unique: true,
       trim: true,
       uppercase: true,
-      index: true,
     },
     studentName: {
       type: String,

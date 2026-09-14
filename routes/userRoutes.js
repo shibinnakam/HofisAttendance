@@ -136,12 +136,14 @@ router.post('/users', checkDb, async (req, res) => {
 
     const normalizedRfid = rfidCardNumber.trim().toUpperCase();
 
-    // Check for duplicate RFID
-    const existing = await User.findOne({ rfidCardNumber: normalizedRfid });
+    // Strict check for duplicate RFID across ALL classes
+    const existing = await User.findOne({
+      rfidCardNumber: { $regex: new RegExp(`^${normalizedRfid.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i') },
+    });
     if (existing) {
       return res.status(400).json({
         success: false,
-        message: `RFID Card Number ${normalizedRfid} is already assigned to "${existing.studentName}"`,
+        message: `Duplicate RFID Card! Card UID "${normalizedRfid}" is already registered to "${existing.studentName}" in "${existing.class}". An RFID card must be unique across all classes.`,
       });
     }
 
@@ -163,7 +165,7 @@ router.post('/users', checkDb, async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: 'RFID Card Number already registered',
+        message: 'Duplicate RFID Card! This RFID UID is already assigned to another student in the system. An RFID card must be unique across all classes.',
       });
     }
     return res.status(500).json({ success: false, message: error.message });
@@ -191,11 +193,14 @@ router.put('/users/:id', checkDb, async (req, res) => {
     if (rfidCardNumber) {
       const normalizedRfid = rfidCardNumber.trim().toUpperCase();
       if (normalizedRfid !== user.rfidCardNumber) {
-        const existing = await User.findOne({ rfidCardNumber: normalizedRfid });
-        if (existing && existing._id.toString() !== user._id.toString()) {
+        const existing = await User.findOne({
+          rfidCardNumber: { $regex: new RegExp(`^${normalizedRfid.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i') },
+          _id: { $ne: user._id },
+        });
+        if (existing) {
           return res.status(400).json({
             success: false,
-            message: `RFID Card Number ${normalizedRfid} is already assigned to "${existing.studentName}"`,
+            message: `Duplicate RFID Card! Card UID "${normalizedRfid}" is already registered to "${existing.studentName}" in "${existing.class}". An RFID card must be unique across all classes.`,
           });
         }
         user.rfidCardNumber = normalizedRfid;
