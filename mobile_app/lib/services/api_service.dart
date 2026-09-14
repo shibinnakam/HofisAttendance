@@ -25,20 +25,8 @@ class ApiService {
   }
 
   void _initDefaultBaseUrl() {
-    if (kIsWeb) {
-      _baseUrl = 'http://localhost:5000';
-    } else {
-      try {
-        if (Platform.isAndroid) {
-          // Android Emulator default to host machine loopback
-          _baseUrl = 'http://10.0.2.2:5000';
-        } else {
-          _baseUrl = 'http://localhost:5000';
-        }
-      } catch (e) {
-        _baseUrl = 'http://localhost:5000';
-      }
-    }
+    // Production Cloud Server on Render
+    _baseUrl = 'https://hofisattendance.onrender.com';
   }
 
   // Helper headers
