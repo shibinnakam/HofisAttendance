@@ -1,4 +1,12 @@
 const mongoose = require('mongoose');
+const dns = require('dns');
+
+// Configure reliable DNS servers to prevent querySrv ECONNREFUSED on local ISPs
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1', '8.8.4.4']);
+} catch (e) {
+  // Ignore if in environments where setServers is restricted
+}
 
 const connectDB = async () => {
   const uri = process.env.MONGODB_URI;
