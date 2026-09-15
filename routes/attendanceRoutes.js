@@ -82,10 +82,17 @@ router.post('/tap', async (req, res) => {
       console.error('Failed to write attendance log:', logErr.message);
     }
 
+    const timeStr = now.toLocaleTimeString('en-US', {
+      timeZone: process.env.TIMEZONE || 'Asia/Kolkata',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+
     return res.json({
       success: true,
       action: action,
-      message: `${student.studentName} successfully ${action.toLowerCase()} at ${now.toLocaleTimeString()}`,
+      message: `${student.studentName} successfully ${action.toLowerCase()} at ${timeStr}`,
       data: {
         id: student._id,
         rfidCardNumber: student.rfidCardNumber,

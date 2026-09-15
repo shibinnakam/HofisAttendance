@@ -21,6 +21,16 @@ class Student {
 
   bool get isPresent => status.toLowerCase() == 'present';
 
+  static DateTime? _parseLocalDate(dynamic val) {
+    if (val == null) return null;
+    try {
+      final dt = DateTime.tryParse(val.toString());
+      return dt?.toLocal();
+    } catch (_) {
+      return null;
+    }
+  }
+
   factory Student.fromJson(Map<String, dynamic> json) {
     return Student(
       id: json['id'] ?? json['_id'] ?? '',
@@ -28,9 +38,9 @@ class Student {
       studentName: json['studentName'] ?? '',
       studentClass: json['class'] ?? '',
       status: json['status'] ?? 'Absent',
-      inTime: json['inTime'] != null ? DateTime.tryParse(json['inTime']) : null,
-      outTime: json['outTime'] != null ? DateTime.tryParse(json['outTime']) : null,
-      lastTap: json['lastTap'] != null ? DateTime.tryParse(json['lastTap']) : null,
+      inTime: _parseLocalDate(json['inTime']),
+      outTime: _parseLocalDate(json['outTime']),
+      lastTap: _parseLocalDate(json['lastTap']),
     );
   }
 

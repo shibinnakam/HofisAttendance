@@ -1074,10 +1074,10 @@ class _AttendanceDashboardScreenState extends State<AttendanceDashboardScreen> {
   Widget _buildStudentCard(Student student) {
     final isPresent = student.isPresent;
     final inTimeStr = student.inTime != null
-        ? DateFormat('hh:mm a').format(student.inTime!)
+        ? DateFormat('hh:mm a').format(student.inTime!.toLocal())
         : '—';
     final outTimeStr = student.outTime != null
-        ? DateFormat('hh:mm a').format(student.outTime!)
+        ? DateFormat('hh:mm a').format(student.outTime!.toLocal())
         : '—';
 
     return Container(
